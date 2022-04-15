@@ -21,10 +21,7 @@ import errno
 
 
 #parameter values, constants
-m = 5/3 #as per Chapra 1997
-a_dash = 20715 #from flow routing module
-b_dash = 0.49 #from flow routing module
-tfl = 8584 #from flow routing module
+m = 5/3 #as per Chapra 2008
 mod_start = 163 #to estimate from 5/8/2019 00:00
 tstep = 5 #model time-step
 krea = 0.00025 #reaeration coefficient
@@ -32,51 +29,37 @@ days = 3 #period of estimation
 start_day = 5 #first day number in the period of estimation 
 
 
-def calc_dcdt(y, t, p, Qsite, PAR, Ci, Cs, dep, day):
+def calc_dcdt(y, t, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadv, Tflowadv_emp):
 
-    try:
-        beta = p['beta'].value
+    try:        
         gppmax = p['gppmax'].value
         kpar = p['kpar'].value
         er = p['er'].value
     except:
-        beta, gppmax, kpar, er = p 
+        gppmax, kpar, er = p 
 
     tf = int(day * 288 + mod_start + t) 
-    tflow = (a_dash * Qsite[tf]**(b_dash-1)) + tfl
-    df = 1 - (tfl / tflow)
-    t_solute = m * (1 + beta) * ((a_dash * Qsite[tf]**(b_dash-1)) + tfl) / 60 
-
-    #only beta model, const t_lag
-    # tau_solute = m * tfl * (1 + beta) / 60
-    # t_adz = (t_solute - tau_solute) 
-
-    #beta + df model, variable t_lag
-    tau_solute = (1 - df) * t_solute
-    t_adz = (df * t_solute)
-    
-    t_lag = round(tf - int(tau_solute/tstep))
+    alpha= Tsadv[tf] - Tflowadv_emp[tf]         
+    t_lag = round(tf - int(alpha/tstep))
        
     gpp = (gppmax * PAR[tf]) / (kpar + PAR[tf]) 
     
-    #adz or adv model
     dCdt = tstep*(
-        ((Ci[t_lag] - y) / t_solute) + #ADZ: t_adz, #ADV: t_solute
+        ((Ci[t_lag] - y) * (Qi[t_lag] / (Qsite[tf] * Tsadv[tf]))) + 
         (krea * (Cs[tf] - y)) + 
         ((gpp - er) / dep[tf])
-        )
-            
+        )            
     return dCdt
 
 
 #odeint, residual functions
-def g(t, y0, p, Qsite, PAR, Ci, Cs, dep, day):
-    soln = odeint(calc_dcdt, y0, t, args=(p,Qsite, PAR, Ci, Cs, dep, day))
+def g(t, y0, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadv, Tflowadv_emp):
+    soln = odeint(calc_dcdt, y0, t, args=(p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadv, Tflowadv_emp))
     return soln[:,0]
 
 
-def residual(p, t, y0, data, Qsite, PAR, Ci, Cs, dep, day):
-    model = g(t, y0, p, Qsite, PAR, Ci, Cs, dep, day)
+def residual(p, t, y0, data, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadv, Tflowadv_emp):
+    model = g(t, y0, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadv, Tflowadv_emp)
     return (model - data).ravel()
 
 
@@ -87,24 +70,19 @@ def solute_model(metab_inputs):
     final = []
     sim = []
     
+    
+    Qi = metab_inputs['Qi'].tolist()
     Qsite = metab_inputs['Qsite'].tolist()
     Ci = metab_inputs['Ci'].tolist()
     PAR = metab_inputs['PAR'].tolist()
     Cs = metab_inputs['Cs'].tolist()
     dep = metab_inputs['dep'].tolist()
-    temp = metab_inputs['Temp'].tolist()    
+    temp = metab_inputs['Temp'].tolist()
+    Tsadv = metab_inputs['Tsadv'].tolist()
+    Tflowadv_emp = metab_inputs['Tflowadv_emp'].tolist()
+    Tuadv = metab_inputs['Tuadv'].tolist()    
 
-    #As odeint checks values beyond the t limits, copying last value 5 more times to prevent 'list out of index' error
-    ext = 5
-    Ci.extend([Ci[-1] for i in range(ext)])
-    Qsite.extend([Qsite[-1] for i in range(ext)])
-    Cs.extend([Cs[-1] for i in range(ext)])
-    PAR.extend([PAR[-1] for i in range(ext)])
-    dep.extend([dep[-1] for i in range(ext)])
-    temp.extend([temp[-1] for i in range(ext)])
-
-    
-
+  
     for day in tqdm(range(days)):
     
         day_no = day + start_day
@@ -119,21 +97,21 @@ def solute_model(metab_inputs):
         else:
             y0 = solve2.values[-1] 
 
-        params = Parameters()
-        params.add('beta', value = 0.8, min = 0)
-        params.add('gppmax', value = 0.0016, min = 0) 
-        params.add('kpar', value = 0.18, min = 0.1, max = 1.13) 
+        #ADZ model: parameter constraints from the modified two-station model outputs
+        params = Parameters()        
+        params.add('gppmax', value = 0.0018, min = 0)
+        params.add('kpar', min = 0.1, max = 0.5)
         params.add('er', value = 0.003, min = 0) 
 
         #nelder/leastsq method
-        solve1 = minimize(residual, params, args=(t, y0, data, Qsite, PAR, Ci, Cs, dep, day), method='nelder')
+        solve1 = minimize(residual, params, args=(t, y0, data, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadv, Tflowadv_emp), method='nelder')
         solve2 = data + solve1.residual.reshape(data.shape)
 
         #for rows in solve1:
         result.append(solve1)
         store_results.append(solve1)
         #for rows in solve2:
-        final.append(solve2)
+        final.append(solve2) 
     
     
     final_array = np.asarray(final)
@@ -202,11 +180,19 @@ if __name__ == "__main__":
        
         metab_inputs = pd.read_csv(f1)
         L = 4660 #reach length
-        W = 316 #reach width
-        metab_inputs['dep'] = (metab_inputs['Qsite'] * ((a_dash * metab_inputs['Qsite']**(b_dash-1)) + tfl)) / (W * L)
+        W = 316 #reach width        
         metab_inputs['Catm'] = -0.00005858 * metab_inputs['Temp']**3 + 0.007195 * metab_inputs['Temp']**2 - 0.39509 * metab_inputs['Temp'] + 14.586
         metab_inputs['VP'] = 0.0000802 * metab_inputs['Temp']**3 - 0.000717 * metab_inputs['Temp']**2 + 0.0717 * metab_inputs['Temp'] + 0.539
         metab_inputs['Cs'] = (metab_inputs['Catm'] * (metab_inputs['P'] - metab_inputs['VP'])) / (101.325 - metab_inputs['VP'])
+        #celerity, velocity calculations
+        metab_inputs['us'] = 0.0047 * (metab_inputs['Qsite'] ** 0.8699)
+        metab_inputs['uadv'] = metab_inputs['us'] 
+        metab_inputs['cadv'] = m * metab_inputs['uadv']
+        metab_inputs['Tflowadv_emp'] = (L / metab_inputs['cadv']) / 60 #unit:min
+        metab_inputs['Tsadv'] = (L / metab_inputs['us']) / 60 #unit:min
+        metab_inputs['Tuadv'] = (L / metab_inputs['uadv']) / 60 #unit:min
+        metab_inputs['dep'] = (metab_inputs['Qsite'] * (metab_inputs['Tflowadv_emp']*60)) / (W * L)
+
         metab_inputs['date_time'] = pd.to_datetime(metab_inputs['date_time'],format='%d/%m/%Y %H:%M')
         datetimes = pd.to_datetime(metab_inputs['date_time'])
         metab_inputs['day'] = datetimes.dt.day

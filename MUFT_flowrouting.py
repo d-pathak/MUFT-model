@@ -31,7 +31,7 @@ def calc_dQdt(y, t, p, Qi):
 
     #3 param celerity model, n= 1 is assumed
     tflow = ((a_dash * (y**(b_dash-1))) + tfl)
-    dQdt = 3600 * ((Qi[tf] - y) / tflow)  
+    dQdt = 60 * 60 * ((Qi[tf] - y) / tflow)  
 
     return dQdt
 
@@ -70,7 +70,7 @@ def unsteady_flow_routing(input_file):
 
     params = Parameters()
     params.add('a_dash', value= 10000, min = 0) 
-    params.add('b_dash', value = 0.5, min = 0, max = 1) 
+    params.add('b_dash', value = 0.2, min = 0.1, max = 1) 
     params.add('tfl', value = 10800, min = 0) 
 
     #original nelder/leastsq method
@@ -102,18 +102,19 @@ def unsteady_flow_routing(input_file):
     ax.set_xlabel('Time (h)')
     ax.set_ylabel('Flow ($m^3$ $s^{-1}$)')
     plt.savefig('MUFT_flow__fit.png')
-    from sklearn.metrics import r2_score 
-    r2 = r2_score(final_df[0],data)
-    r2
+    # from sklearn.metrics import r2_score 
+    # r2 = r2_score(final_df[0],data)
+    # r2
 
     sim = final_df.rename(columns = {0:'simulated_flow'})
     sim['date_time'] = flow['date_time']
     sim['date_time'] =  pd.to_datetime(sim['date_time'], format='%d/%m/%Y %H:%M')
+    sim.to_csv('MUFT_simflow_1h.csv')
     series = sim.set_index(sim['date_time'])
     del series['date_time']
     upsampled = series.resample('5Min')
     interpolated = upsampled.interpolate(method='linear')
-    interpolated.to_csv('MUFT_simflow.csv', sep='\t')
+    interpolated.to_csv('MUFT_simflow_5min.csv', sep='\t')
 
     return final_df
 
