@@ -1,36 +1,28 @@
 import sys
-import glob
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from lmfit import minimize, Parameters, Parameter, report_fit, Minimizer, conf_interval, printfuncs
 from scipy.integrate import odeint
-from scipy import interpolate
 import csv
 import numdifftools
 from pylab import shape
 from tqdm import tqdm
-import emcee
 from datetime import datetime
-import calendar
-import corner
-import math
 import argparse
 import io
-import errno
-
 
 #parameter values, constants
 m = 5/3 #as per Chapra 2008
-beta = 1.55 #estimated using TFG vel
 mod_start = 163 #to estimate from 5/8/2019 00:00
 tstep = 5 #model time-step
 krea = 0.00025 #reaeration coefficient
 days = 3 #period of estimation
-start_day = 5 #first day number in the period of estimation 
+start_day = 5 #first day number in the period of estimation
+Fadv = 0.84 #optimised from two-station method
 
 
-def calc_dcdt(y, t, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz):
+def calc_dcdt(y, t, p, day, inputs):
 
     try:        
         gppmax = p['gppmax'].value
@@ -39,30 +31,28 @@ def calc_dcdt(y, t, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz):
     except:
         gppmax, kpar, er = p 
 
-    tf = int(day * 288 + mod_start + t) 
-    tau_s = Tsadz[tf] - Tuadz[tf] 
-    Tadz = Tuadz[tf]
-    t_lag = round(tf - int(tau_s/tstep))
+    tf = int(day * 288 + mod_start + t)     
+    alpha = Fadv * inputs['Tsadv'][tf]
+    t_lag = round(tf - int(alpha/tstep)) 
        
-    gpp = (gppmax * PAR[tf]) / (kpar + PAR[tf]) 
+    gpp = (gppmax * inputs['PAR'][tf]) / (kpar + inputs['PAR'][tf]) 
     
     dCdt = tstep*(
-        ((Ci[t_lag] - y) * (Qi[t_lag] / (Qsite[tf] * Tadz))) + 
-        (krea * (Cs[tf] - y)) + 
-        ((gpp - er) / dep[tf])
-        )
-            
+        ((inputs['Ci'][t_lag] - y) * (inputs['Qi'][t_lag] / (inputs['Qsite'][tf] * inputs['Tsadv'][tf]))) + 
+        (krea * (inputs['Cs'][tf] - y)) + 
+        ((gpp - er) / inputs['dep'][tf])
+        )            
     return dCdt
 
 
 #odeint, residual functions
-def g(t, y0, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz):
-    soln = odeint(calc_dcdt, y0, t, args=(p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz))
+def g(t, y0, p, day, inputs):
+    soln = odeint(calc_dcdt, y0, t, args=(p, day, inputs))
     return soln[:,0]
 
 
-def residual(p, t, y0, data, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz):
-    model = g(t, y0, p, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz)
+def residual(p, t, y0, data, day, inputs):
+    model = g(t, y0, p, day, inputs)
     return (model - data).ravel()
 
 
@@ -73,47 +63,39 @@ def solute_model(metab_inputs):
     final = []
     sim = []
     
-    Qi = metab_inputs['Qi'].tolist()
-    Qsite = metab_inputs['Qsite'].tolist()
-    Ci = metab_inputs['Ci'].tolist()
-    PAR = metab_inputs['PAR'].tolist()
-    Cs = metab_inputs['Cs'].tolist()
-    dep = metab_inputs['dep'].tolist()
-    temp = metab_inputs['Temp'].tolist()
-    Tsadz = metab_inputs['Tsadz'].tolist()
-    Tflowadz_emp = metab_inputs['Tflowadz_emp'].tolist()
-    Tuadz = metab_inputs['Tuadz'].tolist() 
-      
+    df = metab_inputs.reset_index(inplace=False)
+    inputs = df.to_dict()    
 
     for day in tqdm(range(days)):
     
         day_no = day + start_day
         
-        obs_filt = metab_inputs.loc[1,day_no] #for 1 reach estimation
+        obs_filt = metab_inputs.loc[1,day_no] #for 1 reach estimation in Otra
         data = obs_filt['Cobs'] 
                       
         mod_len = int(24 * 60 / tstep)                                
         t = np.arange(0,mod_len)
-        if day == 0:
-            y0 = Ci[mod_start]            
-        else:
-            y0 = solve2.values[-1] 
 
-        #ADZ model: parameter constraints from the modified two-station model outputs
+        if day == 0:
+            y0 = inputs['Ci'][mod_start]            
+        else:
+            y0 = solve2[-1] 
+
+        #ADV model: parameter constraints from the modified two-station model outputs
         params = Parameters()        
-        params.add('gppmax', value = 0.0013, min = 0) 
-        params.add('kpar', value = 0.16, min = 0.1, max = 0.5) 
+        params.add('gppmax', value = 0.0067, min = 0)
+        params.add('kpar', value = 0.13, min = 0.1, max = 0.5)
         params.add('er', value = 0.003, min = 0) 
 
         #nelder/leastsq method
-        solve1 = minimize(residual, params, args=(t, y0, data, Qi, Qsite, PAR, Ci, Cs, dep, day, Tsadz, Tuadz), method='nelder')
+        solve1 = minimize(residual, params, args=(t, y0, data, day, inputs), method='nelder')
         solve2 = data + solve1.residual.reshape(data.shape)
 
         #for rows in solve1:
         result.append(solve1)
         store_results.append(solve1)
         #for rows in solve2:
-        final.append(solve2)
+        final.append(solve2) 
     
     
     final_array = np.asarray(final)
@@ -123,10 +105,8 @@ def solute_model(metab_inputs):
     final_df = pd.DataFrame(sim).T    
 
     stdoutOrigin=sys.stdout 
-    sys.stdout = open("MUFT_solute_log.txt", "w")
-    report_fit(store_results[0])
-    report_fit(store_results[1]) 
-    report_fit(store_results[2])   
+    sys.stdout = open("MUFT_ADV_log.txt", "w")
+    [report_fit(store_results[i]) for i in range(len(store_results))]
     sys.stdout.close()
     sys.stdout=stdoutOrigin
 
@@ -156,13 +136,13 @@ def solute_model(metab_inputs):
     final_df['gpp_daily'] = gpp_daily
     final_df['er_daily']= er_daily
     final_df['nep_daily'] = (final_df['gpp_daily'] - final_df['er_daily'])
-    final_df.to_csv('MUFT_metab_out.csv',sep='\t')
+    final_df.to_csv('MUFT_ADV_metab.csv',sep='\t')
 
     fig, ax = plt.subplots(1,figsize = (10,5))
     obs = metab_inputs['Cobs'].iloc[mod_start:mod_start+3*mod_len]
     ax.plot(final_df['dates'], final_df['DOsim'], c='blue')
     ax.scatter(final_df['dates'],obs,c='red',s=25)
-    plt.savefig('MUFT_dofit.png')
+    plt.savefig('MUFT_ADV_dofit.png')
 
     return final_df
 
@@ -182,23 +162,23 @@ if __name__ == "__main__":
        
         metab_inputs = pd.read_csv(f1)
         L = 4660 #reach length
-        W = 316 #reach width
+        W = 316 #reach width        
         metab_inputs['Catm'] = -0.00005858 * metab_inputs['Temp']**3 + 0.007195 * metab_inputs['Temp']**2 - 0.39509 * metab_inputs['Temp'] + 14.586
         metab_inputs['VP'] = 0.0000802 * metab_inputs['Temp']**3 - 0.000717 * metab_inputs['Temp']**2 + 0.0717 * metab_inputs['Temp'] + 0.539
         metab_inputs['Cs'] = (metab_inputs['Catm'] * (metab_inputs['P'] - metab_inputs['VP'])) / (101.325 - metab_inputs['VP'])
         #celerity, velocity calculations
         metab_inputs['us'] = 0.0047 * (metab_inputs['Qsite'] ** 0.8699)
-        metab_inputs['uadz'] = (1 + beta) * metab_inputs['us'] 
-        metab_inputs['cadz'] = m * metab_inputs['uadz']
-        metab_inputs['Tflowadz_emp'] = (L / metab_inputs['cadz']) / 60 #unit:min
-        metab_inputs['Tsadz'] = (L / metab_inputs['us']) / 60 #unit:min
-        metab_inputs['Tuadz'] = (L / metab_inputs['uadz']) / 60 #unit:min
-        metab_inputs['dep'] = (metab_inputs['Qsite'] * (metab_inputs['Tflowadz_emp']*60)) / (W * L)
+        metab_inputs['uadv'] = metab_inputs['us'] 
+        metab_inputs['cadv'] = m * metab_inputs['uadv']
+        metab_inputs['Tflowadv_emp'] = (L / metab_inputs['cadv']) / 60 #unit:min
+        metab_inputs['Tsadv'] = (L / metab_inputs['us']) / 60 #unit:min
+        metab_inputs['Tuadv'] = (L / metab_inputs['uadv']) / 60 #unit:min
+        metab_inputs['dep'] = (1.41 + (0.676 * np.exp(0.0027*metab_inputs['Qsite'])) - (0.676 * np.exp(0.0027*85))) #depth is regulated
 
         metab_inputs['date_time'] = pd.to_datetime(metab_inputs['date_time'],format='%d/%m/%Y %H:%M')
         datetimes = pd.to_datetime(metab_inputs['date_time'])
         metab_inputs['day'] = datetimes.dt.day
         metab_inputs.set_index(['reach','day'],inplace=True)
-        metab_inputs.to_csv('MUFT_inputs.csv')
+        # metab_inputs.to_csv('MUFT_ADV_inputs.csv')
         main(metab_inputs)
         

@@ -1,37 +1,46 @@
 
 import sys
-import glob
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from lmfit import minimize, Parameters, Parameter, report_fit, Minimizer, conf_interval, printfuncs
 from scipy.integrate import odeint
-from scipy import interpolate
 import csv
 import numdifftools
 from pylab import shape
 from tqdm import tqdm
-import emcee
-import datetime
-import corner
 import argparse
 import io
 
+#parameter values, constants
+m = 5/3
+tstep = 5
+mod_start = 288 #to estimate from 4/8/2019 00:00
+beta = 1.55 #estimated using TDG vel
+#reach characteristics
+L = [3130, 4660, 2990]
+b = [0.1554, 0.0047, 0.0489]
+c = [0.3967, 0.8699, 0.4352]
 
 def calc_dQdt(y, t, p, Qi):
 
     try:
-        a_dash = p['a_dash'].value
-        b_dash = p['b_dash'].value
-        tfl = p['tfl'].value        
+        Fr = p['Fr'].value         
     except:
-        a_dash, b_dash, tfl = p
+        Fr = p 
     
-    tf = int(t)
+    tf = int(mod_start + t)
 
-    #3 param celerity model, n= 1 is assumed
-    tflow = ((a_dash * (y**(b_dash-1))) + tfl)
-    dQdt = 60 * 60 * ((Qi[tf] - y) / tflow)  
+    Ts1 = L[0] / (b[0] * (y**c[0])) #unit: seconds
+    Ts2 = L[1] / (b[1] * (y**c[1])) 
+    Ts3 = L[2] / (b[2] * (y**c[2]))
+    Ts = (Ts1 + Ts2 + Ts3) / 60   #unit:min 
+
+    Tflow = Ts / (m * (1 + beta)) #unit:min    
+    tau_fl = (1 - Fr) * Tflow  #unit:min
+    tlag = round(tf - int(tau_fl/tstep))
+
+    dQdt = 5 * 60 * ((Qi[tlag] - y) / (Fr * Tflow * 60)) 
 
     return dQdt
 
@@ -42,11 +51,9 @@ def g(t, y0, p, Qi):
     return soln[:,0]
 
 
-
 def residual(p, ts, y0, data, Qi):
     model = g(ts, y0, p, Qi)
     return (model - data).ravel()
-
 
 
 def unsteady_flow_routing(input_file):
@@ -55,27 +62,22 @@ def unsteady_flow_routing(input_file):
     flow['date_time'] =  pd.to_datetime(flow['date_time'], format='%d/%m/%Y %H:%M')
 
     Qi = flow['input_flow'].to_list()
-    L_reach = flow['reach_length'].to_list()
-
+    
     #store results and simulations
     result = []
     store_results = []
     final = []
     sim = []
     
-    mod_len = len(Qi) - 1
-    data = flow['observed_flow'][:mod_len]
+    mod_len = len(Qi) - 1 - mod_start
+    data = flow['observed_flow'][mod_start:mod_start + mod_len]
     t = np.arange(0,mod_len)
-    y0 = Qi[0]
+    y0 = Qi[mod_start]
 
     params = Parameters()
-    params.add('a_dash', value= 10000, min = 0) 
-    params.add('b_dash', value = 0.2, min = 0.1, max = 1) 
-    params.add('tfl', value = 10800, min = 0) 
-
-    #original nelder/leastsq method
+    params.add('Fr', value = 0.6, min = 0, max = 1) 
+    
     solve1 = minimize(residual, params, args=(t, y0, data, Qi), method='nelder')
-
     solve2 = data + solve1.residual.reshape(data.shape)
 
     #for rows in solve1:
@@ -96,26 +98,15 @@ def unsteady_flow_routing(input_file):
     sys.stdout=stdoutOrigin
 
     fig, ax = plt.subplots(1,figsize = (10,5))
-    ts = np.linspace(0,192,193)
+    ts = np.linspace(0,mod_len - 1, mod_len)
     ax.plot(ts, final_df[0], c='blue')
     ax.scatter(ts,data,c='red',s=25)
     ax.set_xlabel('Time (h)')
-    ax.set_ylabel('Flow ($m^3$ $s^{-1}$)')
+    ax.set_ylabel('Flow ($m^3$ $s^{-1}$)')      
     plt.savefig('MUFT_flow__fit.png')
-    # from sklearn.metrics import r2_score 
-    # r2 = r2_score(final_df[0],data)
-    # r2
 
-    sim = final_df.rename(columns = {0:'simulated_flow'})
-    sim['date_time'] = flow['date_time']
-    sim['date_time'] =  pd.to_datetime(sim['date_time'], format='%d/%m/%Y %H:%M')
-    sim.to_csv('MUFT_simflow_1h.csv')
-    series = sim.set_index(sim['date_time'])
-    del series['date_time']
-    upsampled = series.resample('5Min')
-    interpolated = upsampled.interpolate(method='linear')
-    interpolated.to_csv('MUFT_simflow_5min.csv', sep='\t')
-
+    final_df.to_csv('MUFT_simflow_Hekni.csv')
+    
     return final_df
 
 
