@@ -15,8 +15,8 @@ import io
 #parameter values, constants
 m = 5/3 #as per Chapra 2008
 beta = 1.2 #solute-lag coefficient (estimate from conservative solute experiment)
-mod_start = 288 #to estimate from 6/8/2019 00:00 in the demo data
-tstep = 5 #model time-step
+tstep = 5 #model time-step, 5 min here
+mod_start = int(24 * 60 / tstep) #to estimate from 6/8/2019 00:00 in the demo data, skip 1 day for t_lag
 mod_len = int(24 * 60 / tstep) #for day-wise parameter estimation
 krea = 0.0005 #reaeration coefficient
 reaches = 2 #number of reaches in the network

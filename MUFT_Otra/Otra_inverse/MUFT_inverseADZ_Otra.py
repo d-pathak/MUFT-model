@@ -68,18 +68,6 @@ def solute_model(metab_inputs):
 
     df = metab_inputs.reset_index(inplace=False)
     inputs = df.to_dict()  
-    
-    # Qi = metab_inputs['Qi'].tolist()
-    # Qsite = metab_inputs['Qsite'].tolist()
-    # Ci = metab_inputs['Ci'].tolist()
-    # PAR = metab_inputs['PAR'].tolist()
-    # Cs = metab_inputs['Cs'].tolist()
-    # dep = metab_inputs['dep'].tolist()
-    # temp = metab_inputs['Temp'].tolist()
-    # Tsadz = metab_inputs['Tsadz'].tolist()
-    # Tflowadz_emp = metab_inputs['Tflowadz_emp'].tolist()
-    # Tuadz = metab_inputs['Tuadz'].tolist() 
-      
 
     for day in tqdm(range(days)):
     
