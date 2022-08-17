@@ -1,11 +1,11 @@
 # MUFT-model
-### Metabolism estimation in Unsteady Flow conditions and Transient storage zones (MUFT). 
+## Metabolism estimation in Unsteady Flow conditions and Transient storage zones (MUFT). 
 
 The MUFT model presents a modelling approach to estimate whole-stream metabolism in hydropeaking rivers with/without significant transient storage. The model is developed by coupling an unsteady flow routing model (adapted from [Sincock and Lees, 2002](https://doi.org/10.1111/j.1747-6593.2002.tb00361.x)) with the two-station stream metabolism method ([Odum, 1956](https://doi.org/10.4319/lo.1956.1.2.0102)). 
 The solute model includes two formulations, ADV (advection; [Beck and Young, 1975](https://doi.org/10.1016/0043-1354(75)90028-7)) and ADZ (aggregated dead-zone; [Wallis et al., 1989](https://doi.org/10.1680/iicep.1989.1450)), that can be selected based on the dominant solute transport mechanism in the river of interest.
 The MUFT model can be applied using an accounting method and/or inverse modelling approach. 
 
-## MUFT_model general:
+## `MUFT_model_general`
 
 MUFT_model_general includes scripts for general model application in rivers. 
 
@@ -22,7 +22,7 @@ The scripts provided in the MUFT_model_general can be directly used for your cas
 </ul>
 
 
-## MUFT_Otra:
+## `MUFT_Otra`
 
 MUFT_Otra contains model scripts and input files used for flow and solute modelling in the River Otra. 
 The model for the River Otra uses a different approach for parameter estimation compared to the general model and thus, the MUFT model equations are modified according to the data availability in the River Otra (explained in the manuscript).
