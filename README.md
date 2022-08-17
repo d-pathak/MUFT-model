@@ -28,7 +28,7 @@ MUFT_Otra contains model scripts and input files used for flow and solute modell
 The model for the River Otra uses a different approach for parameter estimation compared to the general model and thus, the MUFT model equations are modified according to the data availability in the River Otra (explained in the manuscript).
 
 The flow routing model is adapted from the unsteady QUASAR model. The general flow routing model uses the same equations as [Sincock and Lees, 2002](https://doi.org/10.1111/j.1747-6593.2002.tb00361.x) (3 parameter model). For the River Otra, we have modified the flow model equations (1 parameter model) to reduce the number of paraneters and to make use of the available data in the river (discussed in the manuscript).
-MUFT_flow_param.py optimises the *Fr* parameter, which is then used for routing along the river network in the MUFT_flow_routing.py.
+MUFT_flow_param.py optimises the *F<sub>r</sub>* parameter, which is then used for routing along the river network in the MUFT_flow_routing.py.
 
 For metabolism estimation, Otra_twostation demonstrates the accounting approach and Otra_inverse demonstrates the inverse modelling approach.
 In the case study presented here, the estimates of *P<sub>GPPmax</sub>*, *k<sub>PAR</sub>* and *R<sub>ER</sub>* parameters derived in the two-station models were used to constrain the inverse model parameters.
